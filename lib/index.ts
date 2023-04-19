@@ -110,6 +110,22 @@ export class Emitter<EmitEvents extends EventsMap = DefaultEventsMap> {
   }
 
   /**
+   * Emits ack.
+   *
+   * @return Always true
+   * @public
+   */
+   public ack<Ev extends EventNames<EmitEvents>>(
+    ev: Ev,
+    ...args: EventParams<EmitEvents, Ev>
+  ): true {
+    return new BroadcastOperator<EmitEvents>(
+      this.redisClient,
+      this.broadcastOptions
+    ).ack(ev, ...args);
+  }
+
+  /**
    * Targets a room when emitting.
    *
    * @param room
@@ -370,6 +386,48 @@ export class BroadcastOperator<EmitEvents extends EventsMap>
       type: PacketType.EVENT,
       data: data,
       nsp: this.broadcastOptions.nsp,
+    };
+
+    const opts = {
+      rooms: [...this.rooms],
+      flags: this.flags,
+      except: [...this.exceptRooms],
+    };
+
+    const msg = this.broadcastOptions.parser.encode([UID, packet, opts]);
+    let channel = this.broadcastOptions.broadcastChannel;
+    if (this.rooms && this.rooms.size === 1) {
+      channel += this.rooms.keys().next().value + "#";
+    }
+
+    debug("publishing message to channel %s", channel);
+
+    this.redisClient.publish(channel, msg);
+
+    return true;
+  }
+
+  /**
+   * Emits ack.
+   *
+   * @return Always true
+   * @public
+   */
+   public ack<Ev extends EventNames<EmitEvents>>(
+    ev: Ev,
+    ...args: EventParams<EmitEvents, Ev>
+  ): true {
+    if (RESERVED_EVENTS.has(ev)) {
+      throw new Error(`"${ev}" is a reserved event name`);
+    }
+
+    // set up packet object
+    const data = args;
+    const packet = {
+      type: PacketType.ACK,
+      data: data,
+      nsp: this.broadcastOptions.nsp,
+      id: ev
     };
 
     const opts = {
